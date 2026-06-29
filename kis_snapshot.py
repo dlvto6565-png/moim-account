@@ -144,54 +144,6 @@ def get_usd_krw(cfg):
 
 
 # ---------------------------------------------------------------------------
-# 진단용: 응답 항목 이름과 자릿수만 출력 (실제 금액은 로그에 안 남김)
-# ---------------------------------------------------------------------------
-def _mag(v):
-    s = str(v).strip()
-    neg = s.startswith("-")
-    s2 = s.lstrip("-").replace(".", "").replace(",", "")
-    if not s2.isdigit():
-        return f"비숫자('{s[:14]}')"
-    digits = len(s2.lstrip("0"))
-    if digits == 0:
-        return "0(비어있음)"
-    return f"{'음수 ' if neg else ''}{digits}자리"
-
-
-def debug_dump_o2(res):
-    o2 = (res.get("output2") or [{}])[0]
-    print("===== DEBUG 국내잔고 output2 (자릿수만) =====")
-    for k, v in o2.items():
-        print(f"  {k} = {_mag(v)}")
-    print(f"  (output1 보유종목수 = {len(res.get('output1', []))})")
-    print("===========================================")
-
-
-def debug_psbl(cfg, token):
-    """매수가능금액 조회 — CMA 현금이 여기 잡히는 경우가 많아 진단용으로 확인."""
-    tr = "TTTC8908R" if cfg.get("is_real", True) else "VTTC8908R"
-    url = base_url(cfg) + "/uapi/domestic-stock/v1/trading/inquire-psbl-order"
-    params = {
-        "CANO": cfg["cano"],
-        "ACNT_PRDT_CD": cfg["acnt_prdt_cd"],
-        "PDNO": "005930",
-        "ORD_UNPR": "0",
-        "ORD_DVSN": "01",
-        "CMA_EVLU_AMT_ICLD_YN": "Y",   # CMA 평가금액 포함
-        "OVRS_ICLD_YN": "Y",
-    }
-    try:
-        res = http("GET", url, headers=headers(cfg, token, tr), params=params)
-        o = res.get("output") or {}
-        print("===== DEBUG 매수가능 output (자릿수만) =====")
-        for k, v in o.items():
-            print(f"  {k} = {_mag(v)}")
-        print("==========================================")
-    except Exception as e:
-        print(f"[DEBUG 매수가능] 실패 ({e})", file=sys.stderr)
-
-
-# ---------------------------------------------------------------------------
 # 국내주식 잔고
 # ---------------------------------------------------------------------------
 def domestic_balance(cfg, token):
@@ -211,8 +163,6 @@ def domestic_balance(cfg, token):
         "CTX_AREA_NK100": "",
     }
     res = http("GET", url, headers=headers(cfg, token, tr), params=params)
-    debug_dump_o2(res)        # 진단용 — 계좌요약에 CMA 현금이 잡히는지
-    debug_psbl(cfg, token)    # 진단용 — 매수가능금액에 CMA 현금이 잡히는지
 
     holdings = []
     for it in res.get("output1", []):
@@ -234,15 +184,21 @@ def domestic_balance(cfg, token):
         })
 
     o2 = (res.get("output2") or [{}])[0]
-    purchase = fnum(o2.get("pchs_amt_smtl_amt"))
-    pl = fnum(o2.get("evlu_pfls_smtl_amt"))
-    eval_amt = fnum(o2.get("tot_evlu_amt"))
+    purchase = fnum(o2.get("pchs_amt_smtl_amt"))      # 주식 매입금액 합계
+    pl = fnum(o2.get("evlu_pfls_smtl_amt"))           # 주식 평가손익 합계
+    stock_eval = fnum(o2.get("scts_evlu_amt"))        # 유가증권(주식) 평가금액
+    cash = fnum(o2.get("dnca_tot_amt"))               # 예수금
+    net = fnum(o2.get("nass_amt"))                    # 순자산(예수금+주식) — 가장 신뢰
+    # 순자산이 비어오면 주식평가+예수금으로 보정
+    if net <= 0:
+        net = stock_eval + cash
     summary = {
-        "eval": eval_amt,
+        "eval": stock_eval,                           # 주식만의 평가액
+        "net": net,                                   # 계좌 총자산(현금 포함)
         "purchase": purchase,
         "pl": pl,
         "pl_rate": round(pl / purchase * 100, 2) if purchase else 0.0,
-        "cash": fnum(o2.get("dnca_tot_amt")),
+        "cash": cash,
     }
     return holdings, summary
 
