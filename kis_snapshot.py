@@ -27,7 +27,8 @@ import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
-TOKEN_PATH = os.path.join(HERE, "token.json")          # 토큰 캐시 (24h 재사용)
+TOKEN_PATH = os.path.join(HERE, "token.json")           # 로컬 PC 캐시
+TOKEN_CACHE_PATH = os.path.join(HERE, "token_cache.json") # GitHub Actions 공유 캐시 (커밋됨)
 CONTRIB_PATH = os.path.join(HERE, "contributions.json")  # 모임원 입금 장부 (직접 작성, 선택)
 HISTORY_PATH = os.path.join(HERE, "history.json")        # 월별 추이 누적 기록 (자동)
 OUT_PATH = os.path.join(HERE, "data.json")
@@ -79,13 +80,31 @@ def http(method, url, headers=None, params=None, body=None):
 
 
 def get_token(cfg):
-    """접근토큰 발급 (24h 유효). 캐시 파일에 저장해 재사용한다."""
-    if os.path.exists(TOKEN_PATH):
-        with open(TOKEN_PATH, encoding="utf-8") as f:
-            cached = json.load(f)
-        if cached.get("expires_at", 0) > time.time() + 600:  # 10분 여유
-            return cached["access_token"]
+    """접근토큰 발급 — 하루 1회 원칙 준수.
+    로컬(token.json) → 저장소 공유 캐시(token_cache.json) 순으로 유효한 토큰을 찾고,
+    둘 다 없거나 만료됐을 때만 새로 발급한다.
+    GitHub Actions는 매 실행이 새 환경이라 token.json이 안 남으므로,
+    token_cache.json 을 저장소에 커밋해 공유한다(update.yml의 git add에 추가).
+    """
+    # 유효성 확인 (만료 30분 전부터 갱신 준비)
+    def _valid(path):
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                c = json.load(f)
+            if c.get("expires_at", 0) > time.time() + 1800:
+                return c["access_token"]
+        except Exception:
+            pass
+        return None
 
+    tok = _valid(TOKEN_PATH) or _valid(TOKEN_CACHE_PATH)
+    if tok:
+        print("[토큰] 캐시 재사용 (신규 발급 없음)")
+        return tok
+
+    print("[토큰] 새로 발급")
     res = http(
         "POST",
         base_url(cfg) + "/oauth2/tokenP",
@@ -97,10 +116,12 @@ def get_token(cfg):
         },
     )
     token = res["access_token"]
-    # KIS 는 86400초(24h) 유효. 응답 expires_in 이 있으면 그걸 쓴다.
     ttl = int(res.get("expires_in", 86400))
-    with open(TOKEN_PATH, "w", encoding="utf-8") as f:
-        json.dump({"access_token": token, "expires_at": time.time() + ttl}, f)
+    payload = {"access_token": token, "expires_at": time.time() + ttl}
+    # 두 곳에 저장 (로컬용 + 저장소 공유용)
+    for path in [TOKEN_PATH, TOKEN_CACHE_PATH]:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
     return token
 
 
