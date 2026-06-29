@@ -308,19 +308,24 @@ function initCharts(d){
   // 월별: 총자산(막대) + 누적수익률(선)
   const hist=d.history||[];
   if(hist.length){
+    const rates=hist.map(m=>m.pl_rate);
+    const rMax=Math.max(5, Math.ceil(Math.max(...rates.map(Math.abs))*1.3));  // 0 중심 대칭 눈금
+    const assetMax=Math.max(...hist.map(m=>m.net_asset));
     new Chart(document.getElementById("monthly"),{
       data:{labels:hist.map(m=>m.ym.slice(5)+"월"),
         datasets:[
           {type:"bar", label:"총자산", data:hist.map(m=>m.net_asset), yAxisID:"y",
-            backgroundColor:"rgba(30,158,90,.8)", borderRadius:4, order:2},
-          {type:"line", label:"누적 수익률", data:hist.map(m=>m.pl_rate), yAxisID:"y1",
-            borderColor:"#F59E0B", backgroundColor:"#F59E0B", tension:.3, pointRadius:3, order:1}
+            backgroundColor:"rgba(30,158,90,.8)", borderRadius:4, order:2,
+            maxBarThickness:64, categoryPercentage:0.6, barPercentage:0.8},
+          {type:"line", label:"누적 수익률", data:rates, yAxisID:"y1",
+            borderColor:"#F59E0B", backgroundColor:"#F59E0B", tension:.3, pointRadius:4, order:1}
         ]},
       options:{responsive:true, maintainAspectRatio:false,
         plugins:{legend:{position:"top", labels:{boxWidth:10, font:{size:11}}}},
         scales:{
-          y:{position:"left", ticks:{callback:v=>(v/10000).toFixed(0)+"만"}, grid:{color:"#EDF0F4"}},
-          y1:{position:"right", ticks:{callback:v=>v+"%"}, grid:{display:false}},
+          y:{position:"left", beginAtZero:true, suggestedMax:assetMax*1.15,
+            ticks:{callback:v=>(v/10000).toFixed(0)+"만"}, grid:{color:"#EDF0F4"}},
+          y1:{position:"right", min:-rMax, max:rMax, ticks:{stepSize:rMax, callback:v=>v+"%"}, grid:{display:false}},
           x:{grid:{display:false}}}}
     });
   }
