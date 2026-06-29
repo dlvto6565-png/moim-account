@@ -255,11 +255,24 @@ function monthlyPanel(h){
       <td class="num ${dir(m.pl)}">${arr(m.pl)} ${wonP(Math.abs(m.pl))}</td>
       <td class="num ${dir(m.pl_rate)}">${pct(m.pl_rate)}</td>
     </tr>`).join("");
-  const sparse = h.length<2 ? `<div class="note">매달 갱신할수록 그래프가 채워집니다.</div>` : "";
+
+  // 데이터가 1개월뿐이면 한 점짜리 차트는 보기 흉하므로 숫자 카드로 대체
+  let visual;
+  if(h.length < 2){
+    const m=h[h.length-1];
+    visual = `
+    <div class="boxes" style="margin-bottom:4px">
+      <div class="box"><div class="k">이번 달 총자산</div><div class="v num">${won(m.net_asset)}</div></div>
+      <div class="box"><div class="k">누적손익</div><div class="v num ${dir(m.pl)}">${arr(m.pl)} ${wonP(Math.abs(m.pl))} (${pct(m.pl_rate)})</div></div>
+    </div>
+    <div class="note">다음 달부터 추이 그래프가 그려집니다.</div>`;
+  } else {
+    visual = `<div class="chartbox" style="height:230px"><canvas id="monthly"></canvas></div>`;
+  }
+
   return `<div class="panel">
     <div class="ptitle"><span class="b"></span>월별 수익 현황</div>
-    <div class="chartbox" style="height:230px"><canvas id="monthly"></canvas></div>
-    ${sparse}
+    ${visual}
     <table>
       <thead><tr><th>월</th><th>총자산</th><th>누적손익</th><th>수익률</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -305,9 +318,9 @@ function initCharts(d){
       scales:{x:{ticks:{callback:v=>v+"%"}, grid:{color:"#EDF0F4"}}, y:{grid:{display:false}}}}
   });
 
-  // 월별: 총자산(막대) + 누적수익률(선)
+  // 월별: 총자산(막대) + 누적수익률(선) — 2개월 이상일 때만 (1개월은 카드로 대체됨)
   const hist=d.history||[];
-  if(hist.length){
+  if(hist.length>=2){
     const rates=hist.map(m=>m.pl_rate);
     const rMax=Math.max(5, Math.ceil(Math.max(...rates.map(Math.abs))*1.3));  // 0 중심 대칭 눈금
     const assetMax=Math.max(...hist.map(m=>m.net_asset));
