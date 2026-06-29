@@ -351,8 +351,8 @@ def build(cfg):
     ovs_eval_krw = ovs_s["eval_usd"] * usd_krw if usd_krw else 0
     ovs_pl_krw = ovs_s["pl_usd"] * usd_krw if usd_krw else 0
 
-    total_eval = dom_s["eval"] + ovs_eval_krw
-    total_pl = dom_s["pl"] + ovs_pl_krw
+    stock_eval = dom_s["eval"] + ovs_eval_krw                 # 주식만의 평가액
+    total_pl = dom_s["pl"] + ovs_pl_krw                       # 주식 평가손익
     total_purchase = dom_s["purchase"] + (ovs_s["purchase_usd"] * usd_krw if usd_krw else 0)
 
     contributions = []
@@ -361,7 +361,8 @@ def build(cfg):
             contributions = json.load(f)
 
     cash = dom_s.get("cash", 0)
-    net_asset = total_eval + cash
+    # 현재 총자산 = 한투 순자산(국내 주식+현금) + 해외 주식평가.  ※ 현금은 여기에만 한 번 포함됨
+    net_asset = dom_s.get("net", stock_eval + cash) + ovs_eval_krw
     contrib_total = sum(c.get("amount", 0) for c in contributions)
     history = update_history(net_asset, contrib_total)
 
@@ -371,9 +372,11 @@ def build(cfg):
         "summary": {
             "domestic": dom_s,
             "overseas": ovs_s,
-            "total_krw_eval": round(total_eval),
+            "total_krw_net": round(net_asset),     # 현재 총자산 (현금 포함, 화면은 이걸 그대로 사용)
+            "total_krw_eval": round(stock_eval),   # 주식만의 평가액
             "total_krw_pl": round(total_pl),
             "total_krw_pl_rate": round(total_pl / total_purchase * 100, 2) if total_purchase else 0.0,
+            "cash": round(cash),
         },
         "holdings": dom_h + ovs_h,
         "trades": trades,

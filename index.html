@@ -144,8 +144,9 @@ let DATA = null;
 
 /* ---- 계좌 요약 ---- */
 function summaryCards(d){
-  const s=d.summary, cash=s.domestic.cash||0;
-  const net = s.total_krw_eval + cash;
+  const s=d.summary, cash=(s.cash!=null?s.cash:(s.domestic.cash||0));
+  // 현재 총자산: 스크립트가 확정해 보낸 값을 그대로 사용 (현금 이중계산 방지)
+  const net = (s.total_krw_net!=null) ? s.total_krw_net : (s.total_krw_eval + cash);
   const contrib = (d.contributions||[]).reduce((a,c)=>a+c.amount,0);
   const pl = contrib>0 ? net-contrib : s.total_krw_pl;
   const rate = contrib>0 ? pl/contrib*100 : s.total_krw_pl_rate;
