@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-29T21:29",
+  "updated_at": "2026-06-29T21:33",
   "usd_krw": 1536.79,
   "summary": {
     "domestic": {
@@ -16,9 +16,11 @@
       "pl_usd": 0.0,
       "pl_rate": 0.0
     },
+    "total_krw_net": 3700000,
     "total_krw_eval": 0,
     "total_krw_pl": 0,
-    "total_krw_pl_rate": 0.0
+    "total_krw_pl_rate": 0.0,
+    "cash": 3700000
   },
   "holdings": [],
   "trades": [],
