@@ -239,18 +239,9 @@ def domestic_balance(cfg, token):
 # ---------------------------------------------------------------------------
 # 해외주식 잔고 (거래소별로 조회해서 합친다)
 # ---------------------------------------------------------------------------
-def _mag2(v):
-    s = str(v).strip()
-    neg = s.startswith("-")
-    s2 = s.lstrip("-").replace(".", "").replace(",", "")
-    if not s2.isdigit():
-        return f"비숫자('{s[:14]}')"
-    d = len(s2.lstrip("0"))
-    return "0(비어있음)" if d == 0 else f"{'음수 ' if neg else ''}{d}자리"
-
-
-def debug_overseas_cash(cfg, token):
-    """해외 체결기준 현재잔고 — 달러(외화) 예수금이 어느 항목에 잡히는지 진단."""
+def overseas_cash(cfg, token):
+    """해외 외화(USD) 예수금 조회. 체결기준 현재잔고의 통화별 예수금에서 USD 현금을 읽는다.
+    계좌별로 필드명이 달라 후보들을 순서대로 시도한다."""
     tr = "CTRP6504R" if cfg.get("is_real", True) else "VTRP6504R"
     url = base_url(cfg) + "/uapi/overseas-stock/v1/trading/inquire-present-balance"
     params = {
@@ -264,17 +255,42 @@ def debug_overseas_cash(cfg, token):
     try:
         res = http("GET", url, headers=headers(cfg, token, tr), params=params)
     except Exception as e:
-        print(f"[DEBUG 해외현금] 조회 실패 ({e})", file=sys.stderr)
-        return
-    for tag in ["output2", "output3"]:
-        block = res.get(tag)
-        rows = block if isinstance(block, list) else [block] if block else []
-        print(f"===== DEBUG 해외현재잔고 {tag} (자릿수만) =====")
-        for row in rows:
-            if isinstance(row, dict):
-                for k, v in row.items():
-                    print(f"  {k} = {_mag2(v)}")
-        print("============================================")
+        print(f"[해외현금] 조회 실패 ({e})", file=sys.stderr)
+        return 0.0
+
+    if os.environ.get("KIS_DEBUG"):  # 진단 스위치 (필요할 때만 켬)
+        for tag in ["output2", "output3"]:
+            block = res.get(tag)
+            rows = block if isinstance(block, list) else [block] if block else []
+            print(f"===== DEBUG 해외현재잔고 {tag} (자릿수만) =====")
+            for row in rows:
+                if isinstance(row, dict):
+                    for k, v in row.items():
+                        s = str(v).lstrip("-").replace(".", "").replace(",", "")
+                        d = len(s.lstrip("0")) if s.isdigit() else "?"
+                        print(f"  {k} = {d}자리")
+            print("============================================")
+
+    usd = 0.0
+    rows = res.get("output2") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    cand = ["frcr_dncl_amt_2", "frcr_dncl_amt2", "frcr_dncl_amt",
+            "frcr_dncl_amt1", "frcr_evlu_amt2", "frcr_dncl_amt_1"]
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        crcy = (row.get("crcy_cd") or "").upper()
+        if crcy and crcy not in ("USD", "", "000"):
+            continue
+        for key in cand:
+            v = fnum(row.get(key))
+            if v > 0:
+                usd += v
+                break
+    if usd:
+        print(f"[해외현금] 외화 예수금 인식: USD {usd:,.2f}")
+    return round(usd, 2)
 
 
 def overseas_balance(cfg, token):
@@ -455,7 +471,8 @@ def build(cfg):
     dom_h, dom_s = domestic_balance(cfg, token)
     time.sleep(0.2)
     ovs_h, ovs_s = overseas_balance(cfg, token)
-    debug_overseas_cash(cfg, token)   # 진단용 — 달러 예수금 위치 확인 후 제거 예정
+    time.sleep(0.2)
+    ovs_cash_usd = overseas_cash(cfg, token)   # 해외 외화(USD) 예수금
     time.sleep(0.2)
     try:
         trades = domestic_trades(cfg, token, cfg.get("trade_lookback_days", 30))
@@ -467,6 +484,8 @@ def build(cfg):
     usd_krw = get_usd_krw(cfg)  # 자동 환율 (실패 시 config 값)
     ovs_eval_krw = ovs_s["eval_usd"] * usd_krw if usd_krw else 0
     ovs_pl_krw = ovs_s["pl_usd"] * usd_krw if usd_krw else 0
+    ovs_cash_krw = ovs_cash_usd * usd_krw if usd_krw else 0
+    ovs_s["cash_usd"] = ovs_cash_usd          # 화면 표시용 (외화 예수금)
 
     stock_eval = dom_s["eval"] + ovs_eval_krw                 # 주식만의 평가액
     total_pl = dom_s["pl"] + ovs_pl_krw                       # 주식 평가손익
@@ -478,9 +497,9 @@ def build(cfg):
             contributions = json.load(f)
     contributions = apply_recurring(contributions)  # 정기 입금 자동 기입
 
-    cash = dom_s.get("cash", 0)
-    # 현재 총자산 = 한투 순자산(국내 주식+현금) + 해외 주식평가.  ※ 현금은 여기에만 한 번 포함됨
-    net_asset = dom_s.get("net", stock_eval + cash) + ovs_eval_krw
+    krw_cash = dom_s.get("cash", 0)
+    # 현재 총자산 = 국내 순자산(주식+원화현금) + 해외 주식평가 + 해외 외화현금(환산)
+    net_asset = dom_s.get("net", stock_eval + krw_cash) + ovs_eval_krw + ovs_cash_krw
     contrib_total = sum(c.get("amount", 0) for c in contributions)
     history = update_history(net_asset, contrib_total)
 
@@ -494,7 +513,8 @@ def build(cfg):
             "total_krw_eval": round(stock_eval),   # 주식만의 평가액
             "total_krw_pl": round(total_pl),
             "total_krw_pl_rate": round(total_pl / total_purchase * 100, 2) if total_purchase else 0.0,
-            "cash": round(cash),
+            "cash": round(krw_cash),                       # 원화 예수금
+            "cash_krw_total": round(krw_cash + ovs_cash_krw),  # 원화+외화(환산) 현금 합계
         },
         "holdings": dom_h + ovs_h,
         "trades": trades,
