@@ -1,13 +1,13 @@
 {
-  "updated_at": "2026-06-30T02:32",
+  "updated_at": "2026-06-30T04:17",
   "usd_krw": 1541.85,
   "summary": {
     "domestic": {
-      "eval": 2643000.0,
-      "net": 3712660.0,
+      "eval": 2671500.0,
+      "net": 3741160.0,
       "purchase": 2630000.0,
-      "pl": 13000.0,
-      "pl_rate": 0.49,
+      "pl": 41500.0,
+      "pl_rate": 1.58,
       "cash": 1069660.0,
       "raw_cash": 3700000.0
     },
@@ -17,12 +17,12 @@
       "pl_usd": 0.0,
       "pl_rate": 0.0
     },
-    "total_krw_net": 3712660,
-    "stock_krw_eval": 2643000,
+    "total_krw_net": 3741160,
+    "stock_krw_eval": 2671500,
     "cash": 1069660,
-    "total_krw_eval": 3712660,
-    "total_krw_pl": 13000,
-    "total_krw_pl_rate": 0.49,
+    "total_krw_eval": 3741160,
+    "total_krw_pl": 41500,
+    "total_krw_pl_rate": 1.58,
     "total_purchase": 2630000,
     "contrib_total": 3700000
   },
@@ -34,12 +34,12 @@
       "code": "000660",
       "qty": 1.0,
       "avg_price": 2630000.0,
-      "cur_price": 2643000.0,
-      "eval_amt": 2643000.0,
-      "eval_amt_krw": 2643000.0,
-      "pl": 13000.0,
-      "pl_krw": 13000.0,
-      "pl_rate": 0.49
+      "cur_price": 2671500.0,
+      "eval_amt": 2671500.0,
+      "eval_amt_krw": 2671500.0,
+      "pl": 41500.0,
+      "pl_krw": 41500.0,
+      "pl_rate": 1.57
     }
   ],
   "allocation": [
@@ -48,7 +48,7 @@
       "code": "000660",
       "market": "국내",
       "type": "stock",
-      "value": 2643000
+      "value": 2671500
     },
     {
       "name": "현금",
@@ -69,10 +69,10 @@
   "history": [
     {
       "ym": "2026-06",
-      "net_asset": 3712660,
+      "net_asset": 3741160,
       "contrib": 3700000,
-      "pl": 12660,
-      "pl_rate": 0.34
+      "pl": 41160,
+      "pl_rate": 1.11
     }
   ]
 }
