@@ -1,15 +1,15 @@
 {
-  "updated_at": "2026-06-30T12:31",
+  "updated_at": "2026-06-30T12:45",
   "usd_krw": 1541.85,
   "summary": {
     "domestic": {
       "eval": 2650000.0,
-      "net": 3719660.0,
+      "net": 3219662.0,
       "purchase": 2630000.0,
       "pl": 20000.0,
       "pl_rate": 0.76,
-      "cash": 1069660.0,
-      "raw_cash": 3700000.0
+      "cash": 569662.0,
+      "raw_cash": 3200002.0
     },
     "overseas": {
       "eval_usd": 0.0,
@@ -17,10 +17,10 @@
       "pl_usd": 0.0,
       "pl_rate": 0.0
     },
-    "total_krw_net": 3719660,
+    "total_krw_net": 3219662,
     "stock_krw_eval": 2650000,
-    "cash": 1069660,
-    "total_krw_eval": 3719660,
+    "cash": 569662,
+    "total_krw_eval": 3219662,
     "total_krw_pl": 20000,
     "total_krw_pl_rate": 0.76,
     "total_purchase": 2630000,
@@ -55,7 +55,7 @@
       "code": "CASH",
       "market": "현금",
       "type": "cash",
-      "value": 1069660
+      "value": 569662
     }
   ],
   "trades": [],
@@ -69,10 +69,10 @@
   "history": [
     {
       "ym": "2026-06",
-      "net_asset": 3719660,
+      "net_asset": 3219662,
       "contrib": 3700000,
-      "pl": 19660,
-      "pl_rate": 0.53
+      "pl": -480338,
+      "pl_rate": -12.98
     }
   ]
 }
