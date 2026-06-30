@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-06-30T15:00",
+  "updated_at": "2026-06-30T15:15",
   "usd_krw": 1541.85,
   "summary": {
     "domestic": {
       "eval": 2650000.0,
-      "net": 3708169.0,
+      "net": 6338509.0,
       "purchase": 2630000.0,
       "pl": 20000.0,
       "pl_rate": 0.76,
@@ -17,7 +17,7 @@
       "pl_rate": 0.0,
       "cash_usd": 4.9
     },
-    "total_krw_net": 3715724,
+    "total_krw_net": 6346064,
     "total_krw_eval": 2650000,
     "total_krw_pl": 20000,
     "total_krw_pl_rate": 0.76,
@@ -49,10 +49,10 @@
   "history": [
     {
       "ym": "2026-06",
-      "net_asset": 3715724,
+      "net_asset": 6346064,
       "contrib": 3700000,
-      "pl": 15724,
-      "pl_rate": 0.42
+      "pl": 2646064,
+      "pl_rate": 71.52
     }
   ]
 }
