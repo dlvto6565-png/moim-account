@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-30T13:00",
+  "updated_at": "2026-06-30T13:05",
   "usd_krw": 1541.85,
   "summary": {
     "domestic": {
@@ -8,8 +8,7 @@
       "purchase": 2630000.0,
       "pl": 20000.0,
       "pl_rate": 0.76,
-      "cash": 569662.0,
-      "raw_cash": 3200002.0
+      "cash": 3200002.0
     },
     "overseas": {
       "eval_usd": 0.0,
@@ -18,13 +17,10 @@
       "pl_rate": 0.0
     },
     "total_krw_net": 3219662,
-    "stock_krw_eval": 2650000,
-    "cash": 569662,
-    "total_krw_eval": 3219662,
+    "total_krw_eval": 2650000,
     "total_krw_pl": 20000,
     "total_krw_pl_rate": 0.76,
-    "total_purchase": 2630000,
-    "contrib_total": 3700000
+    "cash": 3200002
   },
   "holdings": [
     {
@@ -36,26 +32,8 @@
       "avg_price": 2630000.0,
       "cur_price": 2650000.0,
       "eval_amt": 2650000.0,
-      "eval_amt_krw": 2650000.0,
       "pl": 20000.0,
-      "pl_krw": 20000.0,
       "pl_rate": 0.76
-    }
-  ],
-  "allocation": [
-    {
-      "name": "SK하이닉스",
-      "code": "000660",
-      "market": "국내",
-      "type": "stock",
-      "value": 2650000
-    },
-    {
-      "name": "현금",
-      "code": "CASH",
-      "market": "현금",
-      "type": "cash",
-      "value": 569662
     }
   ],
   "trades": [],
