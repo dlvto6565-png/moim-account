@@ -217,21 +217,29 @@ def domestic_balance(cfg, token):
         })
 
     o2 = (res.get("output2") or [{}])[0]
-    purchase = fnum(o2.get("pchs_amt_smtl_amt"))      # 주식 매입금액 합계
-    pl = fnum(o2.get("evlu_pfls_smtl_amt"))           # 주식 평가손익 합계
-    stock_eval = fnum(o2.get("scts_evlu_amt"))        # 유가증권(주식) 평가금액
-    cash = fnum(o2.get("dnca_tot_amt"))               # 예수금
-    net = fnum(o2.get("nass_amt"))                    # 순자산(예수금+주식) — 가장 신뢰
-    # 순자산이 비어오면 주식평가+예수금으로 보정
+    # 주식 평가/손익/매입은 '보유종목 합계'로 직접 계산 (계좌요약 필드가 CMA에서 부정확할 수 있어서)
+    hold_eval = sum(h["eval_amt"] for h in holdings)
+    hold_pl = sum(h["pl"] for h in holdings)
+    hold_purchase = sum(h["avg_price"] * h["qty"] for h in holdings)
+    # 백업: 보유종목이 비면 계좌요약 값 사용
+    stock_eval = hold_eval or fnum(o2.get("scts_evlu_amt"))
+    pl = hold_pl or fnum(o2.get("evlu_pfls_smtl_amt"))
+    purchase = hold_purchase or fnum(o2.get("pchs_amt_smtl_amt"))
+
+    net = fnum(o2.get("nass_amt"))                    # 순자산(주식+현금) — 가장 신뢰
     if net <= 0:
-        net = stock_eval + cash
+        net = stock_eval + fnum(o2.get("dnca_tot_amt"))
+    # 예수금은 한투 예수금 필드를 믿지 않고 역산: 총자산 − 주식평가
+    # (CMA는 매수 대금이 예수금에서 바로 안 빠져 과대 계상되므로)
+    cash = max(0.0, net - stock_eval)
+
     summary = {
         "eval": stock_eval,                           # 주식만의 평가액
         "net": net,                                   # 계좌 총자산(현금 포함)
         "purchase": purchase,
         "pl": pl,
         "pl_rate": round(pl / purchase * 100, 2) if purchase else 0.0,
-        "cash": cash,
+        "cash": cash,                                 # 역산한 실제 예수금
     }
     return holdings, summary
 
