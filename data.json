@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-30T21:30",
+  "updated_at": "2026-06-30T21:45",
   "usd_krw": 1541.85,
   "summary": {
     "domestic": {
@@ -8,7 +8,7 @@
       "purchase": 2630000.0,
       "pl": 20000.0,
       "pl_rate": 0.76,
-      "cash": 3688509.0
+      "cash": 1058169.0
     },
     "overseas": {
       "eval_usd": 0.0,
@@ -21,8 +21,8 @@
     "total_krw_eval": 2650000,
     "total_krw_pl": 20000,
     "total_krw_pl_rate": 0.76,
-    "cash": 3688509,
-    "cash_krw_total": 3696064
+    "cash": 1058169,
+    "cash_krw_total": 1065724
   },
   "holdings": [
     {
