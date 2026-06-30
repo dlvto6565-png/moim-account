@@ -2,36 +2,23 @@ name: update-portfolio
 
 on:
   schedule:
-    # 매시간 7분, 27분, 47분 실행 = 20분마다 자동 업데이트
-    # GitHub Actions cron은 UTC 기준이지만, 여기서는 24시간 전체 실행이라 시간대 상관없음
-    - cron: "7,27,47 * * * *"
-
-  # Actions 탭에서 수동 실행 버튼
+    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: update-portfolio
-  cancel-in-progress: false
-
 jobs:
   update:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Run KIS snapshot
+      - name: snapshot
         env:
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
@@ -40,17 +27,11 @@ jobs:
           KIS_IS_REAL: "true"
         run: python kis_snapshot.py
 
-      - name: Commit updated data
+      - name: commit
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-
-          git add data.json history.json token_cache.json
-
-          if git diff --cached --quiet; then
-            echo "no change"
-          else
-            git commit -m "auto update"
-            git pull --rebase origin main
-            git push
-          fi
+          git add data.json history.json
+          [ -f token_cache.json ] && git add token_cache.json || true
+          git commit -m "auto update" || echo "no change"
+          git push
