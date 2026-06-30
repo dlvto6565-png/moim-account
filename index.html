@@ -202,9 +202,17 @@ function marketSection(d, mk, cur, title){
   const fx=d.usd_krw, all=d.holdings||[];
   const group=all.filter(h=>h.market===mk).sort((a,b)=>krwEq(b,fx)-krwEq(a,fx));
   const grand=all.reduce((a,h)=>a+krwEq(h,fx),0)||1;
+  // 해외 외화 예수금 (있으면 표시)
+  const ovsCashUsd = (mk==="해외" && d.summary.overseas && d.summary.overseas.cash_usd) || 0;
+  const cashLine = ovsCashUsd>0
+    ? `<div class="box"><div class="k">외화 예수금</div><div class="v num">${usd(ovsCashUsd)}<span style="font-size:12px;color:var(--muted)"> · ${won(ovsCashUsd*(fx||0))}</span></div></div>`
+    : "";
+
   if(!group.length){
-    return `<div class="panel"><div class="ptitle"><span class="b"></span>${title}</div>
-      <div class="empty">보유 종목 없음</div></div>`;
+    const body = ovsCashUsd>0
+      ? `<div class="boxes" style="margin-bottom:0">${cashLine}</div>`
+      : `<div class="empty">보유 종목 없음</div>`;
+    return `<div class="panel"><div class="ptitle"><span class="b"></span>${title}</div>${body}</div>`;
   }
   const subEval=group.reduce((a,h)=>a+h.eval_amt,0);
   const subPL=group.reduce((a,h)=>a+h.pl,0);
@@ -214,6 +222,7 @@ function marketSection(d, mk, cur, title){
       <div class="box"><div class="k">평가손익</div><div class="v num ${dir(subPL)}">${arr(subPL)} ${money(Math.abs(subPL),cur)}</div></div>
       <div class="box"><div class="k">총평가금액</div><div class="v num">${money(subEval,cur)}</div></div>
     </div>
+    ${cashLine ? `<div class="boxes" style="margin-top:10px;margin-bottom:0">${cashLine}</div>` : ""}
     ${group.map(h=>holdingCard(h, krwEq(h,fx)/grand*100)).join("")}
   </div>`;
 }
@@ -304,12 +313,12 @@ function initCharts(d){
     type:"doughnut",
     data:{labels:items.map(i=>i.label), datasets:[{data:items.map(i=>i.value), backgroundColor:colors, borderWidth:2, borderColor:"#fff"}]},
     options:{responsive:true, maintainAspectRatio:false, cutout:"62%",
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>` ${c.label} ${(c.raw/total*100).toFixed(1)}%`}}}}
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>` ${c.label} ${won(c.raw)} (${(c.raw/total*100).toFixed(1)}%)`}}}}
   });
   document.getElementById("donutLegend").innerHTML = items.map((it,i)=>`
     <div class="li"><span class="sw" style="background:${colors[i]}"></span>
       <span class="ln">${it.label}</span>
-      <span class="lp num">${(it.value/total*100).toFixed(1)}%</span></div>`).join("");
+      <span class="lp num">${won(it.value)} · ${(it.value/total*100).toFixed(1)}%</span></div>`).join("");
 
   // 막대: 종목별 수익률
   const hs=[...(d.holdings||[])].sort((a,b)=>b.pl_rate-a.pl_rate);
