@@ -3,16 +3,17 @@
 """
 kis_snapshot.py
 한국투자증권(KIS) OpenAPI에서 '조회만' 해서 data.json 을 만드는 스크립트.
+- 국내/해외 잔고(보유종목·수익률) + 최근 체결내역(매매내역)을 뽑는다.
+- 주문(매수/매도) 함수는 의도적으로 넣지 않았다. 이 파이프라인은 읽기 전용이다.
+- App Key/Secret 은 config.json 에만 두고, 웹(data.json)에는 절대 들어가지 않는다.
 
-수정 핵심:
-- HTTP 타임아웃/일시 실패 재시도 추가
-- token_cache.json 재사용 유지
-- 국내 현금 계산 수정
-  raw_cash = KIS 원본 예수금
-  cash = 화면 표시용 현금 = 순자산 - 국내주식평가액
-- 해외 보유종목은 eval_amt_krw / pl_krw 추가
-- allocation 배열 추가: 종목비중/현금비중 차트용
-- recurring.json 정기 입금 자동 반영 유지
+실행:
+    python kis_snapshot.py            # 실제 호출 (config.json 필요)
+    python kis_snapshot.py --demo     # 키 없이 샘플 data.json 생성 (대시보드 미리보기용)
+
+주의: KIS 응답 필드명은 한글 약어라 계좌/상품에 따라 다를 수 있다.
+      혹시 빈 값이 나오면 NORMALIZE 구간의 키 이름만 공식 문서/깃헙 샘플과 대조해 고치면 된다.
+      (koreainvestment/open-trading-api 의 inquire_balance 예제 참고)
 """
 
 import json
@@ -25,13 +26,12 @@ import urllib.parse
 import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
 CONFIG_PATH = os.path.join(HERE, "config.json")
-TOKEN_PATH = os.path.join(HERE, "token.json")
-TOKEN_CACHE_PATH = os.path.join(HERE, "token_cache.json")
-CONTRIB_PATH = os.path.join(HERE, "contributions.json")
-RECURRING_PATH = os.path.join(HERE, "recurring.json")
-HISTORY_PATH = os.path.join(HERE, "history.json")
+TOKEN_PATH = os.path.join(HERE, "token.json")           # 로컬 PC 캐시
+TOKEN_CACHE_PATH = os.path.join(HERE, "token_cache.json") # GitHub Actions 공유 캐시 (커밋됨)
+CONTRIB_PATH = os.path.join(HERE, "contributions.json")  # 모임원 입금 장부 (자동/수동 누적)
+RECURRING_PATH = os.path.join(HERE, "recurring.json")    # 정기(매월) 입금 규칙
+HISTORY_PATH = os.path.join(HERE, "history.json")        # 월별 추이 누적 기록 (자동)
 OUT_PATH = os.path.join(HERE, "data.json")
 
 REAL_BASE = "https://openapi.koreainvestment.com:9443"
@@ -39,27 +39,10 @@ VTS_BASE = "https://openapivts.koreainvestment.com:29443"
 
 
 # ---------------------------------------------------------------------------
-# 공통 유틸
-# ---------------------------------------------------------------------------
-def fnum(v, default=0.0):
-    try:
-        return float(str(v).replace(",", "").strip() or 0)
-    except (ValueError, AttributeError, TypeError):
-        return default
-
-
-def safe_round(v):
-    return round(fnum(v))
-
-
-def now_iso():
-    return dt.datetime.now().isoformat(timespec="minutes")
-
-
-# ---------------------------------------------------------------------------
-# 설정 / HTTP / 토큰
+# 설정 / 토큰
 # ---------------------------------------------------------------------------
 def load_config():
+    # 1) 클라우드(GitHub Actions 등): 환경변수에 키가 있으면 그걸 사용
     if os.environ.get("KIS_APP_KEY"):
         return {
             "is_real": os.environ.get("KIS_IS_REAL", "true").lower() == "true",
@@ -73,10 +56,9 @@ def load_config():
             "usd_krw": fnum(os.environ.get("KIS_USD_KRW"), 0),
             "trade_lookback_days": int(os.environ.get("KIS_TRADE_LOOKBACK_DAYS", "30")),
         }
-
+    # 2) 로컬 PC: config.json 사용
     if not os.path.exists(CONFIG_PATH):
         sys.exit("config.json 이 없습니다. config.example.json 을 복사해서 채워주세요.")
-
     with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
 
@@ -85,75 +67,56 @@ def base_url(cfg):
     return REAL_BASE if cfg.get("is_real", True) else VTS_BASE
 
 
-def http(method, url, headers=None, params=None, body=None, retries=4, timeout=60):
-    """
-    한국투자 API가 GitHub Actions에서 가끔 타임아웃 나는 문제를 줄이기 위해
-    네트워크 오류/타임아웃은 재시도한다.
-    HTTP 4xx/5xx는 키·요청값 문제일 수 있으므로 즉시 실패 처리한다.
-    """
+def http(method, url, headers=None, params=None, body=None, retries=3):
     if params:
         url = url + "?" + urllib.parse.urlencode(params)
-
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
-
     last_err = None
-
-    for attempt in range(1, retries + 1):
+    for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                raw = r.read().decode()
-                return json.loads(raw)
-
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
+            # 서버가 4xx/5xx 응답을 준 경우 — 내용을 그대로 올려 진단
             detail = e.read().decode(errors="ignore")
             raise RuntimeError(f"HTTP {e.code} {url}\n{detail}")
-
-        except Exception as e:
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            # 타임아웃·연결 끊김 등 일시적 오류 — 잠깐 쉬고 재시도
             last_err = e
-            print(f"[HTTP] 요청 실패 {attempt}/{retries}: {e}", file=sys.stderr)
-
-            if attempt < retries:
-                wait = 5 * attempt
-                print(f"[HTTP] {wait}초 후 재시도", file=sys.stderr)
+            if attempt < retries - 1:
+                wait = 3 * (attempt + 1)
+                print(f"[재시도] {url} 연결 실패, {wait}초 후 다시 시도 ({attempt + 1}/{retries})", file=sys.stderr)
                 time.sleep(wait)
-
-    raise RuntimeError(f"HTTP 요청 최종 실패: {url}\n{last_err}")
+    raise RuntimeError(f"연결 실패(재시도 {retries}회 초과): {url}\n{last_err}")
 
 
 def get_token(cfg):
+    """접근토큰 발급 — 하루 1회 원칙 준수.
+    로컬(token.json) → 저장소 공유 캐시(token_cache.json) 순으로 유효한 토큰을 찾고,
+    둘 다 없거나 만료됐을 때만 새로 발급한다.
+    GitHub Actions는 매 실행이 새 환경이라 token.json이 안 남으므로,
+    token_cache.json 을 저장소에 커밋해 공유한다(update.yml의 git add에 추가).
     """
-    token.json 또는 token_cache.json에 유효한 토큰이 있으면 재사용.
-    없거나 만료 30분 이내면 새로 발급.
-    GitHub Actions에서는 token_cache.json이 커밋되어야 다음 실행에서 재사용 가능.
-    """
+    # 유효성 확인 (만료 30분 전부터 갱신 준비)
     def _valid(path):
         if not os.path.exists(path):
             return None
-
         try:
             with open(path, encoding="utf-8") as f:
                 c = json.load(f)
-
-            token = c.get("access_token")
-            expires_at = fnum(c.get("expires_at"), 0)
-
-            if token and expires_at > time.time() + 1800:
-                return token
-
-        except Exception as e:
-            print(f"[토큰] 캐시 읽기 실패: {path} / {e}", file=sys.stderr)
-
+            if c.get("expires_at", 0) > time.time() + 1800:
+                return c["access_token"]
+        except Exception:
+            pass
         return None
 
     tok = _valid(TOKEN_PATH) or _valid(TOKEN_CACHE_PATH)
-
     if tok:
         print("[토큰] 캐시 재사용 (신규 발급 없음)")
         return tok
 
     print("[토큰] 새로 발급")
-
     res = http(
         "POST",
         base_url(cfg) + "/oauth2/tokenP",
@@ -163,26 +126,14 @@ def get_token(cfg):
             "appkey": cfg["app_key"],
             "appsecret": cfg["app_secret"],
         },
-        retries=4,
-        timeout=60,
     )
-
     token = res["access_token"]
     ttl = int(res.get("expires_in", 86400))
-
-    payload = {
-        "access_token": token,
-        "expires_at": time.time() + ttl,
-        "created_at": now_iso(),
-    }
-
+    payload = {"access_token": token, "expires_at": time.time() + ttl}
+    # 두 곳에 저장 (로컬용 + 저장소 공유용)
     for path in [TOKEN_PATH, TOKEN_CACHE_PATH]:
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[토큰] 저장 실패: {path} / {e}", file=sys.stderr)
-
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
     return token
 
 
@@ -193,40 +144,36 @@ def headers(cfg, token, tr_id):
         "appkey": cfg["app_key"],
         "appsecret": cfg["app_secret"],
         "tr_id": tr_id,
-        "custtype": "P",
+        "custtype": "P",  # 개인
     }
 
 
-# ---------------------------------------------------------------------------
-# 환율
-# ---------------------------------------------------------------------------
+def fnum(v, default=0.0):
+    try:
+        return float(str(v).replace(",", "").strip() or 0)
+    except (ValueError, AttributeError):
+        return default
+
+
 def get_usd_krw(cfg):
+    """USD/KRW 환율 자동 조회. 두 소스를 차례로 시도하고, 다 실패하면 config 값 사용."""
     sources = [
         ("open.er-api.com", "https://open.er-api.com/v6/latest/USD"),
         ("frankfurter.app", "https://api.frankfurter.app/latest?from=USD&to=KRW"),
     ]
-
     for name, url in sources:
         try:
-            res = http("GET", url, headers={"User-Agent": "Mozilla/5.0"}, retries=2, timeout=30)
+            res = http("GET", url, headers={"User-Agent": "Mozilla/5.0"})
             rate = res.get("rates", {}).get("KRW")
-
             if rate:
                 rate = round(float(rate), 2)
                 print(f"[환율] 자동 조회 성공 ({name}): {rate:,.2f}")
                 return rate
-
         except Exception as e:
             print(f"[환율] {name} 실패 ({e})", file=sys.stderr)
-
     fb = fnum(cfg.get("usd_krw"), 0)
-
-    if fb > 0:
-        print(f"[환율] 자동 조회 모두 실패 → config/env 값 사용: {fb:,.2f}", file=sys.stderr)
-        return fb
-
-    print("[환율] 자동 조회 모두 실패 → 0 처리", file=sys.stderr)
-    return 0
+    print(f"[환율] 자동 조회 모두 실패 → config 값 사용: {fb:,.0f}", file=sys.stderr)
+    return fb
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +182,6 @@ def get_usd_krw(cfg):
 def domestic_balance(cfg, token):
     tr = "TTTC8434R" if cfg.get("is_real", True) else "VTTC8434R"
     url = base_url(cfg) + "/uapi/domestic-stock/v1/trading/inquire-balance"
-
     params = {
         "CANO": cfg["cano"],
         "ACNT_PRDT_CD": cfg["acnt_prdt_cd"],
@@ -249,20 +195,14 @@ def domestic_balance(cfg, token):
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
     }
-
     res = http("GET", url, headers=headers(cfg, token, tr), params=params)
 
     holdings = []
-
     for it in res.get("output1", []):
         qty = fnum(it.get("hldg_qty"))
-
         if qty <= 0:
             continue
-
-        eval_amt = fnum(it.get("evlu_amt"))
-        pl_amt = fnum(it.get("evlu_pfls_amt"))
-
+        # ---- NORMALIZE (국내) ----
         holdings.append({
             "market": "국내",
             "currency": "KRW",
@@ -271,72 +211,76 @@ def domestic_balance(cfg, token):
             "qty": qty,
             "avg_price": fnum(it.get("pchs_avg_pric")),
             "cur_price": fnum(it.get("prpr")),
-            "eval_amt": eval_amt,
-            "eval_amt_krw": eval_amt,
-            "pl": pl_amt,
-            "pl_krw": pl_amt,
+            "eval_amt": fnum(it.get("evlu_amt")),
+            "pl": fnum(it.get("evlu_pfls_amt")),
             "pl_rate": fnum(it.get("evlu_pfls_rt")),
         })
 
     o2 = (res.get("output2") or [{}])[0]
-
-    purchase = fnum(o2.get("pchs_amt_smtl_amt"))
-    pl = fnum(o2.get("evlu_pfls_smtl_amt"))
-    stock_eval = fnum(o2.get("scts_evlu_amt"))
-
-    # 한국투자 원본 예수금.
-    # 국내주식 D+2 정산 구조 때문에 오늘 매수 후에도 그대로 보일 수 있음.
-    raw_cash = fnum(o2.get("dnca_tot_amt"))
-
-    # 순자산 후보.
-    # nass_amt가 가장 좋고, 비어 있으면 다른 필드를 보조로 사용.
-    net = fnum(o2.get("nass_amt"))
-
+    purchase = fnum(o2.get("pchs_amt_smtl_amt"))      # 주식 매입금액 합계
+    pl = fnum(o2.get("evlu_pfls_smtl_amt"))           # 주식 평가손익 합계
+    stock_eval = fnum(o2.get("scts_evlu_amt"))        # 유가증권(주식) 평가금액
+    cash = fnum(o2.get("dnca_tot_amt"))               # 예수금
+    net = fnum(o2.get("nass_amt"))                    # 순자산(예수금+주식) — 가장 신뢰
+    # 순자산이 비어오면 주식평가+예수금으로 보정
     if net <= 0:
-        net = fnum(o2.get("tot_evlu_amt"))
-
-    if net <= 0:
-        net = fnum(o2.get("asst_icdc_amt"))
-
-    if net <= 0:
-        net = stock_eval + raw_cash
-
-    # 화면 표시용 현금.
-    # 원본 예수금이 아니라 포트폴리오 관점의 남은 현금.
-    cash = max(0.0, net - stock_eval)
-
-    print(
-        "[국내] "
-        f"주식평가={stock_eval:,.0f} / "
-        f"순자산={net:,.0f} / "
-        f"표시현금={cash:,.0f} / "
-        f"KIS원본예수금={raw_cash:,.0f}"
-    )
-
+        net = stock_eval + cash
     summary = {
-        "eval": stock_eval,
-        "net": net,
+        "eval": stock_eval,                           # 주식만의 평가액
+        "net": net,                                   # 계좌 총자산(현금 포함)
         "purchase": purchase,
         "pl": pl,
         "pl_rate": round(pl / purchase * 100, 2) if purchase else 0.0,
         "cash": cash,
-        "raw_cash": raw_cash,
     }
-
     return holdings, summary
 
 
 # ---------------------------------------------------------------------------
-# 해외주식 잔고
+# 해외주식 잔고 (거래소별로 조회해서 합친다)
 # ---------------------------------------------------------------------------
+def _mag2(v):
+    s = str(v).strip()
+    neg = s.startswith("-")
+    s2 = s.lstrip("-").replace(".", "").replace(",", "")
+    if not s2.isdigit():
+        return f"비숫자('{s[:14]}')"
+    d = len(s2.lstrip("0"))
+    return "0(비어있음)" if d == 0 else f"{'음수 ' if neg else ''}{d}자리"
+
+
+def debug_overseas_cash(cfg, token):
+    """해외 체결기준 현재잔고 — 달러(외화) 예수금이 어느 항목에 잡히는지 진단."""
+    tr = "CTRP6504R" if cfg.get("is_real", True) else "VTRP6504R"
+    url = base_url(cfg) + "/uapi/overseas-stock/v1/trading/inquire-present-balance"
+    params = {
+        "CANO": cfg["cano"],
+        "ACNT_PRDT_CD": cfg["acnt_prdt_cd"],
+        "WCRC_FRCR_DVSN_CD": "02",  # 외화 기준
+        "NATN_CD": "000",
+        "TR_MKET_CD": "00",
+        "INQR_DVSN_CD": "00",
+    }
+    try:
+        res = http("GET", url, headers=headers(cfg, token, tr), params=params)
+    except Exception as e:
+        print(f"[DEBUG 해외현금] 조회 실패 ({e})", file=sys.stderr)
+        return
+    for tag in ["output2", "output3"]:
+        block = res.get(tag)
+        rows = block if isinstance(block, list) else [block] if block else []
+        print(f"===== DEBUG 해외현재잔고 {tag} (자릿수만) =====")
+        for row in rows:
+            if isinstance(row, dict):
+                for k, v in row.items():
+                    print(f"  {k} = {_mag2(v)}")
+        print("============================================")
+
+
 def overseas_balance(cfg, token):
     tr = "TTTS3012R" if cfg.get("is_real", True) else "VTTS3012R"
     url = base_url(cfg) + "/uapi/overseas-stock/v1/trading/inquire-balance"
-
-    holdings = []
-    eval_usd = 0.0
-    purchase_usd = 0.0
-    pl_usd = 0.0
+    holdings, eval_usd, purchase_usd, pl_usd = [], 0.0, 0.0, 0.0
 
     for exch in cfg.get("overseas_exchanges", ["NASD", "NYSE", "AMEX"]):
         params = {
@@ -347,25 +291,21 @@ def overseas_balance(cfg, token):
             "CTX_AREA_FK200": "",
             "CTX_AREA_NK200": "",
         }
-
         try:
             res = http("GET", url, headers=headers(cfg, token, tr), params=params)
         except RuntimeError as e:
             print(f"[해외:{exch}] 조회 건너뜀 -> {e}", file=sys.stderr)
             continue
-
-        time.sleep(0.3)
+        time.sleep(0.2)  # 유량(초당20건) 여유
 
         for it in res.get("output1", []):
             qty = fnum(it.get("ovrs_cblc_qty"))
-
             if qty <= 0:
                 continue
-
+            # ---- NORMALIZE (해외) ----
             ev = fnum(it.get("ovrs_stck_evlu_amt"))
-            item_pl = fnum(it.get("frcr_evlu_pfls_amt"))
+            pl = fnum(it.get("frcr_evlu_pfls_amt"))
             avg = fnum(it.get("pchs_avg_pric"))
-
             holdings.append({
                 "market": "해외",
                 "currency": "USD",
@@ -375,20 +315,12 @@ def overseas_balance(cfg, token):
                 "avg_price": avg,
                 "cur_price": fnum(it.get("now_pric2")),
                 "eval_amt": ev,
-                "pl": item_pl,
+                "pl": pl,
                 "pl_rate": fnum(it.get("evlu_pfls_rt")),
             })
-
             eval_usd += ev
-            pl_usd += item_pl
+            pl_usd += pl
             purchase_usd += avg * qty
-
-    print(
-        "[해외] "
-        f"평가USD={eval_usd:,.2f} / "
-        f"매입USD={purchase_usd:,.2f} / "
-        f"손익USD={pl_usd:,.2f}"
-    )
 
     summary = {
         "eval_usd": round(eval_usd, 2),
@@ -396,29 +328,26 @@ def overseas_balance(cfg, token):
         "pl_usd": round(pl_usd, 2),
         "pl_rate": round(pl_usd / purchase_usd * 100, 2) if purchase_usd else 0.0,
     }
-
     return holdings, summary
 
 
 # ---------------------------------------------------------------------------
-# 국내 일별 체결내역
+# 국내 일별 체결내역 (매매내역)
 # ---------------------------------------------------------------------------
 def domestic_trades(cfg, token, days=30):
     tr = "TTTC8001R" if cfg.get("is_real", True) else "VTTC8001R"
     url = base_url(cfg) + "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
-
     end = dt.date.today()
     start = end - dt.timedelta(days=days)
-
     params = {
         "CANO": cfg["cano"],
         "ACNT_PRDT_CD": cfg["acnt_prdt_cd"],
         "INQR_STRT_DT": start.strftime("%Y%m%d"),
         "INQR_END_DT": end.strftime("%Y%m%d"),
-        "SLL_BUY_DVSN_CD": "00",
+        "SLL_BUY_DVSN_CD": "00",   # 전체
         "INQR_DVSN": "00",
         "PDNO": "",
-        "CCLD_DVSN": "01",
+        "CCLD_DVSN": "01",         # 체결
         "ORD_GNO_BRNO": "",
         "ODNO": "",
         "INQR_DVSN_3": "00",
@@ -426,56 +355,54 @@ def domestic_trades(cfg, token, days=30):
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
     }
-
     res = http("GET", url, headers=headers(cfg, token, tr), params=params)
-
     trades = []
-
     for it in res.get("output1", []):
         qty = fnum(it.get("tot_ccld_qty"))
-
         if qty <= 0:
             continue
-
         d = it.get("ord_dt", "")
-
         trades.append({
             "date": f"{d[:4]}-{d[4:6]}-{d[6:]}" if len(d) == 8 else d,
             "market": "국내",
             "currency": "KRW",
             "name": it.get("prdt_name", ""),
             "code": it.get("pdno", ""),
-            "side": it.get("sll_buy_dvsn_cd_name", ""),
+            "side": it.get("sll_buy_dvsn_cd_name", ""),  # 매수/매도
             "qty": qty,
             "price": fnum(it.get("avg_prvs")),
             "amount": fnum(it.get("tot_ccld_amt")),
         })
-
     return trades
 
 
 # ---------------------------------------------------------------------------
-# 입금 장부
+# 월별 추이 기록 (실행할 때마다 그 달 값을 갱신해 history.json 에 누적)
 # ---------------------------------------------------------------------------
-def load_contributions():
-    if not os.path.exists(CONTRIB_PATH):
-        return []
-
-    try:
-        with open(CONTRIB_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-
-        if isinstance(data, list):
-            return data
-
-    except Exception as e:
-        print(f"[입금장부] 읽기 실패: {e}", file=sys.stderr)
-
-    return []
+def update_history(net_asset, contrib):
+    hist = []
+    if os.path.exists(HISTORY_PATH):
+        with open(HISTORY_PATH, encoding="utf-8") as f:
+            hist = json.load(f)
+    ym = dt.date.today().strftime("%Y-%m")
+    pl = net_asset - contrib if contrib else 0
+    rec = {
+        "ym": ym,
+        "net_asset": round(net_asset),
+        "contrib": round(contrib),
+        "pl": round(pl),
+        "pl_rate": round(pl / contrib * 100, 2) if contrib else 0.0,
+    }
+    hist = [h for h in hist if h.get("ym") != ym]  # 같은 달이면 최신값으로 교체
+    hist.append(rec)
+    hist.sort(key=lambda h: h["ym"])
+    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, indent=2)
+    return hist
 
 
 # ---------------------------------------------------------------------------
-# 정기 입금 자동 기입
+# 정기 입금 자동 기입 (매월 말일이 지나면 그 달 분을 contributions 에 추가)
 # ---------------------------------------------------------------------------
 def _month_last_day(y, m):
     nxt = dt.date(y + 1, 1, 1) if m == 12 else dt.date(y, m + 1, 1)
@@ -485,103 +412,38 @@ def _month_last_day(y, m):
 def apply_recurring(contributions):
     if not os.path.exists(RECURRING_PATH):
         return contributions
-
-    try:
-        with open(RECURRING_PATH, encoding="utf-8") as f:
-            rule = json.load(f)
-    except Exception as e:
-        print(f"[정기입금] recurring.json 읽기 실패: {e}", file=sys.stderr)
-        return contributions
-
+    with open(RECURRING_PATH, encoding="utf-8") as f:
+        rule = json.load(f)
     members = rule.get("members", [])
     start = rule.get("start_ym")
-
     if not members or not start:
         return contributions
 
     today = dt.date.today()
     existing = {(c.get("member"), c.get("date")) for c in contributions}
-
-    try:
-        y, m = map(int, start.split("-"))
-    except Exception:
-        print("[정기입금] start_ym 형식 오류. 예: 2026-06", file=sys.stderr)
-        return contributions
-
+    y, m = map(int, start.split("-"))
     added = 0
-
     while (y, m) <= (today.year, today.month):
         last = _month_last_day(y, m)
-
-        # 그 달 말일이 지나거나 말일 당일이면 자동 기입
-        if today >= last:
+        if today >= last:  # 그 달 말일이 실제로 지났을 때만 기입
             ymd = last.isoformat()
-
             for mem in members:
-                member = mem.get("member")
-                amount = fnum(mem.get("amount"))
-
-                if not member or amount <= 0:
-                    continue
-
-                key = (member, ymd)
-
+                key = (mem["member"], ymd)
                 if key not in existing:
                     contributions.append({
-                        "date": ymd,
-                        "member": member,
-                        "amount": amount,
-                        "auto": True,
+                        "date": ymd, "member": mem["member"],
+                        "amount": mem["amount"], "auto": True,
                     })
                     existing.add(key)
                     added += 1
-
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
     if added:
         contributions.sort(key=lambda c: c.get("date", ""))
-
         with open(CONTRIB_PATH, "w", encoding="utf-8") as f:
             json.dump(contributions, f, ensure_ascii=False, indent=2)
-
         print(f"[정기입금] {added}건 자동 기입")
-
     return contributions
-
-
-# ---------------------------------------------------------------------------
-# 월별 추이 기록
-# ---------------------------------------------------------------------------
-def update_history(net_asset, contrib):
-    hist = []
-
-    if os.path.exists(HISTORY_PATH):
-        try:
-            with open(HISTORY_PATH, encoding="utf-8") as f:
-                hist = json.load(f)
-        except Exception as e:
-            print(f"[히스토리] 기존 history.json 읽기 실패: {e}", file=sys.stderr)
-            hist = []
-
-    ym = dt.date.today().strftime("%Y-%m")
-    pl = net_asset - contrib if contrib else 0
-
-    rec = {
-        "ym": ym,
-        "net_asset": safe_round(net_asset),
-        "contrib": safe_round(contrib),
-        "pl": safe_round(pl),
-        "pl_rate": round(pl / contrib * 100, 2) if contrib else 0.0,
-    }
-
-    hist = [h for h in hist if h.get("ym") != ym]
-    hist.append(rec)
-    hist.sort(key=lambda h: h["ym"])
-
-    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(hist, f, ensure_ascii=False, indent=2)
-
-    return hist
 
 
 # ---------------------------------------------------------------------------
@@ -591,113 +453,50 @@ def build(cfg):
     token = get_token(cfg)
 
     dom_h, dom_s = domestic_balance(cfg, token)
-
-    time.sleep(0.3)
-
+    time.sleep(0.2)
     ovs_h, ovs_s = overseas_balance(cfg, token)
-
-    time.sleep(0.3)
-
+    debug_overseas_cash(cfg, token)   # 진단용 — 달러 예수금 위치 확인 후 제거 예정
+    time.sleep(0.2)
     try:
         trades = domestic_trades(cfg, token, cfg.get("trade_lookback_days", 30))
     except RuntimeError as e:
         print(f"[체결] 조회 실패 -> {e}", file=sys.stderr)
         trades = []
+    trades.sort(key=lambda t: t["date"], reverse=True)
 
-    trades.sort(key=lambda t: t.get("date", ""), reverse=True)
+    usd_krw = get_usd_krw(cfg)  # 자동 환율 (실패 시 config 값)
+    ovs_eval_krw = ovs_s["eval_usd"] * usd_krw if usd_krw else 0
+    ovs_pl_krw = ovs_s["pl_usd"] * usd_krw if usd_krw else 0
 
-    usd_krw = get_usd_krw(cfg)
+    stock_eval = dom_s["eval"] + ovs_eval_krw                 # 주식만의 평가액
+    total_pl = dom_s["pl"] + ovs_pl_krw                       # 주식 평가손익
+    total_purchase = dom_s["purchase"] + (ovs_s["purchase_usd"] * usd_krw if usd_krw else 0)
 
-    ovs_eval_krw = ovs_s["eval_usd"] * usd_krw if usd_krw else 0.0
-    ovs_pl_krw = ovs_s["pl_usd"] * usd_krw if usd_krw else 0.0
-    ovs_purchase_krw = ovs_s["purchase_usd"] * usd_krw if usd_krw else 0.0
+    contributions = []
+    if os.path.exists(CONTRIB_PATH):
+        with open(CONTRIB_PATH, encoding="utf-8") as f:
+            contributions = json.load(f)
+    contributions = apply_recurring(contributions)  # 정기 입금 자동 기입
 
-    # 해외 보유종목에 원화 평가액 추가
-    overseas_holdings_krw = []
-
-    for h in ovs_h:
-        hh = dict(h)
-        hh["eval_amt_krw"] = round(fnum(h.get("eval_amt")) * usd_krw, 2) if usd_krw else 0
-        hh["pl_krw"] = round(fnum(h.get("pl")) * usd_krw, 2) if usd_krw else 0
-        overseas_holdings_krw.append(hh)
-
-    holdings = dom_h + overseas_holdings_krw
-
-    domestic_stock_eval = dom_s["eval"]
-    domestic_net = dom_s["net"]
-    domestic_cash = dom_s["cash"]
-
-    stock_krw_eval = domestic_stock_eval + ovs_eval_krw
-    total_krw_net = domestic_net + ovs_eval_krw
-
-    total_pl = dom_s["pl"] + ovs_pl_krw
-    total_purchase = dom_s["purchase"] + ovs_purchase_krw
-
-    contributions = load_contributions()
-    contributions = apply_recurring(contributions)
-    contrib_total = sum(fnum(c.get("amount")) for c in contributions)
-
-    history = update_history(total_krw_net, contrib_total)
-
-    # 종목비중/현금비중 차트용
-    allocation = []
-
-    for h in holdings:
-        val = fnum(h.get("eval_amt_krw"))
-
-        if val > 0:
-            allocation.append({
-                "name": h.get("name", ""),
-                "code": h.get("code", ""),
-                "market": h.get("market", ""),
-                "type": "stock",
-                "value": round(val),
-            })
-
-    if domestic_cash > 0:
-        allocation.append({
-            "name": "현금",
-            "code": "CASH",
-            "market": "현금",
-            "type": "cash",
-            "value": round(domestic_cash),
-        })
-
-    print(
-        "[전체] "
-        f"주식평가={stock_krw_eval:,.0f} / "
-        f"현금={domestic_cash:,.0f} / "
-        f"총자산={total_krw_net:,.0f} / "
-        f"입금합계={contrib_total:,.0f}"
-    )
+    cash = dom_s.get("cash", 0)
+    # 현재 총자산 = 한투 순자산(국내 주식+현금) + 해외 주식평가.  ※ 현금은 여기에만 한 번 포함됨
+    net_asset = dom_s.get("net", stock_eval + cash) + ovs_eval_krw
+    contrib_total = sum(c.get("amount", 0) for c in contributions)
+    history = update_history(net_asset, contrib_total)
 
     return {
-        "updated_at": now_iso(),
+        "updated_at": dt.datetime.now().isoformat(timespec="minutes"),
         "usd_krw": usd_krw or None,
-
         "summary": {
             "domestic": dom_s,
             "overseas": ovs_s,
-
-            # 신규 명확한 필드
-            "total_krw_net": safe_round(total_krw_net),
-            "stock_krw_eval": safe_round(stock_krw_eval),
-            "cash": safe_round(domestic_cash),
-
-            # 기존 프론트 호환용
-            # 기존 화면에서 total_krw_eval을 총평가액으로 읽는 경우가 많아서
-            # 현금 포함 총자산으로 둔다.
-            "total_krw_eval": safe_round(total_krw_net),
-
-            "total_krw_pl": safe_round(total_pl),
+            "total_krw_net": round(net_asset),     # 현재 총자산 (현금 포함, 화면은 이걸 그대로 사용)
+            "total_krw_eval": round(stock_eval),   # 주식만의 평가액
+            "total_krw_pl": round(total_pl),
             "total_krw_pl_rate": round(total_pl / total_purchase * 100, 2) if total_purchase else 0.0,
-
-            "total_purchase": safe_round(total_purchase),
-            "contrib_total": safe_round(contrib_total),
+            "cash": round(cash),
         },
-
-        "holdings": holdings,
-        "allocation": allocation,
+        "holdings": dom_h + ovs_h,
         "trades": trades,
         "contributions": contributions,
         "history": history,
@@ -705,81 +504,43 @@ def build(cfg):
 
 
 # ---------------------------------------------------------------------------
-# 데모 데이터
+# 데모 데이터 (키 없이 대시보드 확인용)
 # ---------------------------------------------------------------------------
 def demo():
     return {
-        "updated_at": now_iso(),
+        "updated_at": dt.datetime.now().isoformat(timespec="minutes"),
         "usd_krw": 1378,
         "summary": {
-            "domestic": {
-                "eval": 2_000_000,
-                "net": 3_700_000,
-                "purchase": 2_000_000,
-                "pl": 0,
-                "pl_rate": 0,
-                "cash": 1_700_000,
-                "raw_cash": 3_700_000,
-            },
-            "overseas": {
-                "eval_usd": 0,
-                "purchase_usd": 0,
-                "pl_usd": 0,
-                "pl_rate": 0,
-            },
-            "total_krw_net": 3_700_000,
-            "stock_krw_eval": 2_000_000,
-            "cash": 1_700_000,
-            "total_krw_eval": 3_700_000,
-            "total_krw_pl": 0,
-            "total_krw_pl_rate": 0,
-            "total_purchase": 2_000_000,
-            "contrib_total": 3_700_000,
+            "domestic": {"eval": 8_420_000, "purchase": 7_900_000, "pl": 520_000, "pl_rate": 6.58, "cash": 310_000},
+            "overseas": {"eval_usd": 4_120.50, "purchase_usd": 3_650.00, "pl_usd": 470.50, "pl_rate": 12.89},
+            "total_krw_eval": 14_098_049,
+            "total_krw_pl": 1_168_549,
+            "total_krw_pl_rate": 9.04,
         },
         "holdings": [
-            {
-                "market": "국내",
-                "currency": "KRW",
-                "name": "SK하이닉스",
-                "code": "000660",
-                "qty": 10,
-                "avg_price": 200000,
-                "cur_price": 200000,
-                "eval_amt": 2_000_000,
-                "eval_amt_krw": 2_000_000,
-                "pl": 0,
-                "pl_krw": 0,
-                "pl_rate": 0,
-            }
+            {"market": "국내", "currency": "KRW", "name": "삼성전자", "code": "005930", "qty": 80, "avg_price": 71500, "cur_price": 78200, "eval_amt": 6_256_000, "pl": 536_000, "pl_rate": 9.37},
+            {"market": "국내", "currency": "KRW", "name": "TIGER 미국S&P500", "code": "360750", "qty": 110, "avg_price": 19700, "cur_price": 19672, "eval_amt": 2_163_920, "pl": -3_080, "pl_rate": -0.14},
+            {"market": "해외", "currency": "USD", "name": "APPLE INC", "code": "AAPL", "qty": 12, "avg_price": 188.40, "cur_price": 211.20, "eval_amt": 2_534.40, "pl": 273.60, "pl_rate": 12.10},
+            {"market": "해외", "currency": "USD", "name": "NVIDIA CORP", "code": "NVDA", "qty": 9, "avg_price": 162.10, "cur_price": 176.23, "eval_amt": 1_586.07, "pl": 127.17, "pl_rate": 8.72},
         ],
-        "allocation": [
-            {
-                "name": "SK하이닉스",
-                "code": "000660",
-                "market": "국내",
-                "type": "stock",
-                "value": 2_000_000,
-            },
-            {
-                "name": "현금",
-                "code": "CASH",
-                "market": "현금",
-                "type": "cash",
-                "value": 1_700_000,
-            },
+        "trades": [
+            {"date": "2026-06-24", "market": "국내", "currency": "KRW", "name": "삼성전자", "code": "005930", "side": "매수", "qty": 30, "price": 77800, "amount": 2_334_000},
+            {"date": "2026-06-18", "market": "해외", "currency": "USD", "name": "NVIDIA CORP", "code": "NVDA", "side": "매수", "qty": 4, "price": 168.30, "amount": 673.20},
+            {"date": "2026-06-10", "market": "국내", "currency": "KRW", "name": "TIGER 미국S&P500", "code": "360750", "side": "매수", "qty": 50, "price": 19550, "amount": 977_500},
+            {"date": "2026-06-03", "market": "해외", "currency": "USD", "name": "APPLE INC", "code": "AAPL", "side": "매도", "qty": 3, "price": 205.10, "amount": 615.30},
         ],
-        "trades": [],
         "contributions": [
-            {"date": "2026-06-29", "member": "한결", "amount": 3_700_000}
+            {"date": "2026-01-05", "member": "한결", "amount": 6_000_000},
+            {"date": "2026-01-05", "member": "동료A", "amount": 3_500_000},
+            {"date": "2026-01-05", "member": "동료B", "amount": 3_000_000},
         ],
         "history": [
-            {
-                "ym": "2026-06",
-                "net_asset": 3_700_000,
-                "contrib": 3_700_000,
-                "pl": 0,
-                "pl_rate": 0,
-            }
+            {"ym": "2026-01", "net_asset": 9_780_000,  "contrib": 9_000_000,  "pl": 780_000,   "pl_rate": 8.67},
+            {"ym": "2026-02", "net_asset": 11_240_000, "contrib": 10_500_000, "pl": 740_000,   "pl_rate": 7.05},
+            {"ym": "2026-03", "net_asset": 11_910_000, "contrib": 11_000_000, "pl": 910_000,   "pl_rate": 8.27},
+            {"ym": "2026-04", "net_asset": 12_640_000, "contrib": 11_500_000, "pl": 1_140_000, "pl_rate": 9.91},
+            {"ym": "2026-05", "net_asset": 13_420_000, "contrib": 12_000_000, "pl": 1_420_000, "pl_rate": 11.83},
+            {"ym": "2026-06", "net_asset": 14_408_049, "contrib": 12_500_000, "pl": 1_908_049, "pl_rate": 15.26},
         ],
     }
 
@@ -789,15 +550,9 @@ def main():
         data = demo()
     else:
         data = build(load_config())
-
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
-    print(
-        f"data.json 생성 완료 · "
-        f"보유 {len(data.get('holdings', []))}종목 · "
-        f"체결 {len(data.get('trades', []))}건"
-    )
+    print(f"data.json 생성 완료 · 보유 {len(data['holdings'])}종목 · 체결 {len(data['trades'])}건")
 
 
 if __name__ == "__main__":
