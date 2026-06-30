@@ -1,14 +1,15 @@
 {
-  "updated_at": "2026-06-30T00:06",
+  "updated_at": "2026-06-30T00:29",
   "usd_krw": 1536.79,
   "summary": {
     "domestic": {
-      "eval": 2665000.0,
-      "net": 3734660.0,
+      "eval": 2596000.0,
+      "net": 3665660.0,
       "purchase": 2630000.0,
-      "pl": 35000.0,
-      "pl_rate": 1.33,
-      "cash": 3700000.0
+      "pl": -34000.0,
+      "pl_rate": -1.29,
+      "cash": 1069660.0,
+      "raw_cash": 3700000.0
     },
     "overseas": {
       "eval_usd": 0.0,
@@ -16,11 +17,14 @@
       "pl_usd": 0.0,
       "pl_rate": 0.0
     },
-    "total_krw_net": 3734660,
-    "total_krw_eval": 2665000,
-    "total_krw_pl": 35000,
-    "total_krw_pl_rate": 1.33,
-    "cash": 3700000
+    "total_krw_net": 3665660,
+    "stock_krw_eval": 2596000,
+    "cash": 1069660,
+    "total_krw_eval": 3665660,
+    "total_krw_pl": -34000,
+    "total_krw_pl_rate": -1.29,
+    "total_purchase": 2630000,
+    "contrib_total": 3700000
   },
   "holdings": [
     {
@@ -30,10 +34,28 @@
       "code": "000660",
       "qty": 1.0,
       "avg_price": 2630000.0,
-      "cur_price": 2665000.0,
-      "eval_amt": 2665000.0,
-      "pl": 35000.0,
-      "pl_rate": 1.33
+      "cur_price": 2596000.0,
+      "eval_amt": 2596000.0,
+      "eval_amt_krw": 2596000.0,
+      "pl": -34000.0,
+      "pl_krw": -34000.0,
+      "pl_rate": -1.29
+    }
+  ],
+  "allocation": [
+    {
+      "name": "SK하이닉스",
+      "code": "000660",
+      "market": "국내",
+      "type": "stock",
+      "value": 2596000
+    },
+    {
+      "name": "현금",
+      "code": "CASH",
+      "market": "현금",
+      "type": "cash",
+      "value": 1069660
     }
   ],
   "trades": [],
@@ -47,10 +69,10 @@
   "history": [
     {
       "ym": "2026-06",
-      "net_asset": 3734660,
+      "net_asset": 3665660,
       "contrib": 3700000,
-      "pl": 34660,
-      "pl_rate": 0.94
+      "pl": -34340,
+      "pl_rate": -0.93
     }
   ]
 }
