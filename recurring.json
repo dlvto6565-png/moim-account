@@ -1,0 +1,10 @@
+{
+  "start_ym": "2026-07",
+  "day": "last",
+  "members": [
+    { "member": "신한결", "amount": 100000 },
+    { "member": "김별", "amount": 100000 },
+    { "member": "김성해", "amount": 50000 },
+    { "member": "김성일", "amount": 50000 }
+  ]
+}
