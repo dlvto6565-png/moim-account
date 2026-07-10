@@ -1,13 +1,13 @@
 {
-  "updated_at": "2026-07-10T04:15",
+  "updated_at": "2026-07-10T04:30",
   "usd_krw": 1508.29,
   "summary": {
     "domestic": {
-      "eval": 2263000.0,
-      "net": 3321169.0,
+      "eval": 2256000.0,
+      "net": 3314169.0,
       "purchase": 2630000.0,
-      "pl": -367000.0,
-      "pl_rate": -13.95,
+      "pl": -374000.0,
+      "pl_rate": -14.22,
       "cash": 1058169.0
     },
     "overseas": {
@@ -17,10 +17,10 @@
       "pl_rate": 0.0,
       "cash_usd": 1.75
     },
-    "total_krw_net": 3323809,
-    "total_krw_eval": 2263000,
-    "total_krw_pl": -367000,
-    "total_krw_pl_rate": -13.95,
+    "total_krw_net": 3316809,
+    "total_krw_eval": 2256000,
+    "total_krw_pl": -374000,
+    "total_krw_pl_rate": -14.22,
     "cash": 1058169,
     "cash_krw_total": 1060809
   },
@@ -32,10 +32,10 @@
       "code": "000660",
       "qty": 1.0,
       "avg_price": 2630000.0,
-      "cur_price": 2263000.0,
-      "eval_amt": 2263000.0,
-      "pl": -367000.0,
-      "pl_rate": -13.95
+      "cur_price": 2256000.0,
+      "eval_amt": 2256000.0,
+      "pl": -374000.0,
+      "pl_rate": -14.22
     }
   ],
   "trades": [],
@@ -56,10 +56,10 @@
     },
     {
       "ym": "2026-07",
-      "net_asset": 3323809,
+      "net_asset": 3316809,
       "contrib": 3700000,
-      "pl": -376191,
-      "pl_rate": -10.17
+      "pl": -383191,
+      "pl_rate": -10.36
     }
   ]
 }
