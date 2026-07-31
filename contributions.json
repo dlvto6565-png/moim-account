@@ -1,3 +1,31 @@
 [
-  { "date": "2026-06-29", "member": "한결", "amount": 3700000 }
+  {
+    "date": "2026-06-29",
+    "member": "한결",
+    "amount": 3700000
+  },
+  {
+    "date": "2026-07-31",
+    "member": "신한결",
+    "amount": 100000,
+    "auto": true
+  },
+  {
+    "date": "2026-07-31",
+    "member": "김별",
+    "amount": 100000,
+    "auto": true
+  },
+  {
+    "date": "2026-07-31",
+    "member": "김성해",
+    "amount": 50000,
+    "auto": true
+  },
+  {
+    "date": "2026-07-31",
+    "member": "김성일",
+    "amount": 50000,
+    "auto": true
+  }
 ]
