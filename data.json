@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-08-02T00:45",
-  "usd_krw": 1439.43,
+  "updated_at": "2026-08-02T01:00",
+  "usd_krw": 1438.2,
   "summary": {
     "domestic": {
       "eval": 1718000.0,
@@ -17,12 +17,12 @@
       "pl_rate": 0.0,
       "cash_usd": 1.75
     },
-    "total_krw_net": 2778688,
+    "total_krw_net": 2778686,
     "total_krw_eval": 1718000,
     "total_krw_pl": -912000,
     "total_krw_pl_rate": -34.68,
     "cash": 1058169,
-    "cash_krw_total": 1060688
+    "cash_krw_total": 1060686
   },
   "holdings": [
     {
@@ -87,9 +87,9 @@
     },
     {
       "ym": "2026-08",
-      "net_asset": 2778688,
+      "net_asset": 2778686,
       "contrib": 4000000,
-      "pl": -1221312,
+      "pl": -1221314,
       "pl_rate": -30.53
     }
   ]
