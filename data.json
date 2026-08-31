@@ -1,13 +1,13 @@
 {
-  "updated_at": "2026-08-30T23:59",
+  "updated_at": "2026-08-31T00:00",
   "usd_krw": 1377.9,
   "summary": {
     "domestic": {
-      "eval": 1653000.0,
-      "net": 2711169.0,
+      "eval": 1594000.0,
+      "net": 2652169.0,
       "purchase": 2630000.0,
-      "pl": -977000.0,
-      "pl_rate": -37.15,
+      "pl": -1036000.0,
+      "pl_rate": -39.39,
       "cash": 1058169.0
     },
     "overseas": {
@@ -17,10 +17,10 @@
       "pl_rate": 0.0,
       "cash_usd": 1.75
     },
-    "total_krw_net": 2713580,
-    "total_krw_eval": 1653000,
-    "total_krw_pl": -977000,
-    "total_krw_pl_rate": -37.15,
+    "total_krw_net": 2654580,
+    "total_krw_eval": 1594000,
+    "total_krw_pl": -1036000,
+    "total_krw_pl_rate": -39.39,
     "cash": 1058169,
     "cash_krw_total": 1060580
   },
@@ -32,10 +32,10 @@
       "code": "000660",
       "qty": 1.0,
       "avg_price": 2630000.0,
-      "cur_price": 1653000.0,
-      "eval_amt": 1653000.0,
-      "pl": -977000.0,
-      "pl_rate": -37.14
+      "cur_price": 1594000.0,
+      "eval_amt": 1594000.0,
+      "pl": -1036000.0,
+      "pl_rate": -39.39
     }
   ],
   "trades": [],
@@ -68,6 +68,30 @@
       "member": "김성일",
       "amount": 50000,
       "auto": true
+    },
+    {
+      "date": "2026-08-31",
+      "member": "신한결",
+      "amount": 100000,
+      "auto": true
+    },
+    {
+      "date": "2026-08-31",
+      "member": "김별",
+      "amount": 100000,
+      "auto": true
+    },
+    {
+      "date": "2026-08-31",
+      "member": "김성해",
+      "amount": 50000,
+      "auto": true
+    },
+    {
+      "date": "2026-08-31",
+      "member": "김성일",
+      "amount": 50000,
+      "auto": true
     }
   ],
   "history": [
@@ -87,10 +111,10 @@
     },
     {
       "ym": "2026-08",
-      "net_asset": 2713580,
-      "contrib": 4000000,
-      "pl": -1286420,
-      "pl_rate": -32.16
+      "net_asset": 2654580,
+      "contrib": 4300000,
+      "pl": -1645420,
+      "pl_rate": -38.27
     }
   ]
 }
